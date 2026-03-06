@@ -1,76 +1,73 @@
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import getDb from '@/lib/db';
-import { seedDatabase } from '@/lib/seed';
+import { getDb } from '@/lib/mongodb';
 import { signToken } from '@/lib/auth';
+import bcrypt from 'bcryptjs';
+import { seedDatabase } from '@/lib/seed';
 
 export async function POST(request) {
     try {
-        const db = getDb();
-        seedDatabase();
+        const db = await getDb();
 
-        const { name, email, password, campusCode } = await request.json();
+        // Ensure database is seeded if empty
+        await seedDatabase();
 
-        if (!name || !email || !password || !campusCode) {
-            return NextResponse.json(
-                { error: 'Name, email, password, and campus code are required' },
-                { status: 400 }
-            );
+        const { name, email, password, campus_code } = await request.json();
+
+        if (!name || !email || !password || !campus_code) {
+            return NextResponse.json({ error: 'All fields required' }, { status: 400 });
         }
 
         // Validate campus code
-        const code = db.prepare(
-            'SELECT * FROM campus_codes WHERE code = ? AND is_active = 1'
-        ).get(campusCode.trim().toUpperCase());
-
-        if (!code) {
-            return NextResponse.json(
-                { error: 'Invalid or expired campus code' },
-                { status: 400 }
-            );
+        const codeDoc = await db.collection('campus_codes').findOne({ _id: campus_code.toUpperCase() });
+        if (!codeDoc || !codeDoc.is_active) {
+            return NextResponse.json({ error: 'Invalid or inactive campus code' }, { status: 400 });
         }
 
-        // Check if email already exists
-        const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-        if (existing) {
-            return NextResponse.json(
-                { error: 'An account with this email already exists' },
-                { status: 409 }
-            );
+        // Check if user exists
+        const existingUser = await db.collection('users').findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+            return NextResponse.json({ error: 'User already exists' }, { status: 400 });
         }
 
-        // Create the user
         const hash = bcrypt.hashSync(password, 10);
-        const result = db.prepare(
-            'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)'
-        ).run(name, email.toLowerCase(), hash, 'user');
-
-        const userId = result.lastInsertRowid;
-
-        // Generate token and auto-login
-        const token = await signToken({
-            id: Number(userId),
+        const newUser = {
+            _id: email.toLowerCase(),
             name,
             email: email.toLowerCase(),
+            password_hash: hash,
             role: 'user',
+            created_at: new Date().toISOString()
+        };
+
+        await db.collection('users').insertOne(newUser);
+
+        const token = await signToken({
+            id: email.toLowerCase(),
+            email: newUser.email,
+            role: newUser.role,
+            name: newUser.name
         });
 
         const response = NextResponse.json({
             success: true,
-            user: { id: Number(userId), name, email: email.toLowerCase(), role: 'user' },
+            user: {
+                id: email.toLowerCase(),
+                name: newUser.name,
+                email: newUser.email,
+                role: newUser.role
+            }
         });
 
-        response.cookies.set('cems_token', token, {
+        response.cookies.set('auth-token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 60 * 60 * 24,
-            path: '/',
+            maxAge: 60 * 60 * 24 // 24 hours
         });
 
         return response;
     } catch (err) {
         console.error('Signup error:', err);
-        return NextResponse.json({ error: 'Server error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }

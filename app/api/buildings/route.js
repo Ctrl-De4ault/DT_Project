@@ -1,31 +1,43 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { getDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 
-export async function GET(request) {
+export async function GET() {
     try {
-        const db = getDb();
-        const { searchParams } = new URL(request.url);
-        const blockId = searchParams.get('block_id');
-        let buildings;
-        if (blockId) {
-            buildings = db.prepare(`
-        SELECT bld.*, blk.name as block_name, COUNT(r.id) as room_count
-        FROM buildings bld
-        JOIN blocks blk ON blk.id = bld.block_id
-        LEFT JOIN rooms r ON r.building_id = bld.id
-        WHERE bld.block_id = ?
-        GROUP BY bld.id ORDER BY bld.name
-      `).all(blockId);
-        } else {
-            buildings = db.prepare(`
-        SELECT bld.*, blk.name as block_name, COUNT(r.id) as room_count
-        FROM buildings bld
-        JOIN blocks blk ON blk.id = bld.block_id
-        LEFT JOIN rooms r ON r.building_id = bld.id
-        GROUP BY bld.id ORDER BY blk.name, bld.name
-      `).all();
-        }
+        const db = await getDb();
+
+        const buildings = await db.collection('buildings').aggregate([
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: '_id',
+                    foreignField: 'building_id',
+                    as: 'rooms'
+                }
+            },
+            {
+                $unwind: { path: '$block', preserveNullAndEmptyArrays: true }
+            },
+            {
+                $project: {
+                    name: 1,
+                    block_id: 1,
+                    created_at: 1,
+                    block_name: '$block.name',
+                    room_count: { $size: '$rooms' }
+                }
+            },
+            { $sort: { created_at: -1 } }
+        ]).toArray();
+
         return NextResponse.json(buildings);
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -34,13 +46,25 @@ export async function GET(request) {
 
 export async function POST(request) {
     try {
-        const session = await getSession();
-        if (!session || session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        const db = getDb();
+        const db = await getDb();
         const { name, block_id } = await request.json();
-        if (!name || !block_id) return NextResponse.json({ error: 'Name and block_id required' }, { status: 400 });
-        const result = db.prepare('INSERT INTO buildings (name, block_id) VALUES (?, ?)').run(name, block_id);
-        return NextResponse.json({ id: result.lastInsertRowid, name, block_id });
+
+        if (!name || !block_id) {
+            return NextResponse.json({ error: 'Name and block required' }, { status: 400 });
+        }
+
+        const result = await db.collection('buildings').insertOne({
+            name,
+            block_id: new ObjectId(block_id),
+            created_at: new Date().toISOString()
+        });
+
+        return NextResponse.json({
+            success: true,
+            id: result.insertedId.toString(),
+            name,
+            block_id
+        });
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

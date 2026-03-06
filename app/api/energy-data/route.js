@@ -1,42 +1,82 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { getDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 
 export async function GET(request) {
     try {
-        const db = getDb();
+        const db = await getDb();
         const { searchParams } = new URL(request.url);
         const roomId = searchParams.get('room_id');
-        const blockId = searchParams.get('block_id');
         const buildingId = searchParams.get('building_id');
-        const startDate = searchParams.get('start_date');
-        const endDate = searchParams.get('end_date');
-        const limit = searchParams.get('limit') || 500;
+        const blockId = searchParams.get('block_id');
+        const search = searchParams.get('search');
 
-        let query = `
-      SELECT ed.*, r.room_name, r.sensor_id, r.threshold_kwh,
-        bld.name as building_name, blk.name as block_name, blk.id as block_id,
-        u.name as uploaded_by_name
-      FROM energy_data ed
-      JOIN rooms r ON r.id = ed.room_id
-      JOIN buildings bld ON bld.id = r.building_id
-      JOIN blocks blk ON blk.id = bld.block_id
-      LEFT JOIN users u ON u.id = ed.uploaded_by
-    `;
-        const conditions = [];
-        const args = [];
+        // Build aggregation pipeline
+        const pipeline = [
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: 'room_id',
+                    foreignField: '_id',
+                    as: 'room'
+                }
+            },
+            { $unwind: '$room' },
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: 'room.building_id',
+                    foreignField: '_id',
+                    as: 'building'
+                }
+            },
+            { $unwind: '$building' },
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'building.block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            { $unwind: '$block' }
+        ];
 
-        if (roomId) { conditions.push('ed.room_id = ?'); args.push(roomId); }
-        if (buildingId) { conditions.push('bld.id = ?'); args.push(buildingId); }
-        if (blockId) { conditions.push('blk.id = ?'); args.push(blockId); }
-        if (startDate) { conditions.push('ed.date >= ?'); args.push(startDate); }
-        if (endDate) { conditions.push('ed.date <= ?'); args.push(endDate); }
+        // Apply filters
+        const match = {};
+        if (roomId) match.room_id = new ObjectId(roomId);
+        if (buildingId) match['room.building_id'] = new ObjectId(buildingId);
+        if (blockId) match['building.block_id'] = new ObjectId(blockId);
+        if (search) {
+            match.$or = [
+                { 'room.room_name': { $regex: search, $options: 'i' } },
+                { 'building.name': { $regex: search, $options: 'i' } },
+                { 'block.name': { $regex: search, $options: 'i' } }
+            ];
+        }
 
-        if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
-        query += ' ORDER BY ed.date DESC, r.room_name LIMIT ?';
-        args.push(parseInt(limit));
+        if (Object.keys(match).length > 0) {
+            pipeline.push({ $match: match });
+        }
 
-        const data = db.prepare(query).all(...args);
+        pipeline.push(
+            {
+                $project: {
+                    date: 1,
+                    energy_consumption_kwh: 1,
+                    room_id: 1,
+                    room_name: '$room.room_name',
+                    building_id: '$room.building_id',
+                    building_name: '$building.name',
+                    block_id: '$building.block_id',
+                    block_name: '$block.name'
+                }
+            },
+            { $sort: { date: -1, created_at: -1 } },
+            { $limit: 100 }
+        );
+
+        const data = await db.collection('energy_data').aggregate(pipeline).toArray();
         return NextResponse.json(data);
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -45,46 +85,31 @@ export async function GET(request) {
 
 export async function POST(request) {
     try {
-        const session = await getSession();
-        if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        const db = getDb();
-        const body = await request.json();
+        const db = await getDb();
+        const data = await request.json();
 
-        // Handle array (bulk) or single entry
-        const entries = Array.isArray(body) ? body : [body];
+        if (Array.isArray(data)) {
+            const entries = data.map(entry => ({
+                ...entry,
+                room_id: new ObjectId(entry.room_id),
+                energy_consumption_kwh: parseFloat(entry.energy_consumption_kwh),
+                created_at: new Date().toISOString()
+            }));
 
-        const insert = db.prepare(
-            'INSERT INTO energy_data (room_id, date, energy_consumption_kwh, uploaded_by, notes) VALUES (?, ?, ?, ?, ?)'
-        );
-
-        const insertMany = db.transaction((rows) => {
-            const results = [];
-            for (const row of rows) {
-                const { room_id, date, energy_consumption_kwh, notes } = row;
-                if (!room_id || !date || energy_consumption_kwh == null) continue;
-                const r = insert.run(room_id, date, energy_consumption_kwh, session.id, notes || null);
-                results.push(r.lastInsertRowid);
+            if (entries.length > 0) {
+                await db.collection('energy_data').insertMany(entries);
             }
-            return results;
-        });
-
-        const ids = insertMany(entries);
-        return NextResponse.json({ success: true, inserted: ids.length, ids });
-    } catch (err) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
-    }
-}
-
-export async function DELETE(request) {
-    try {
-        const session = await getSession();
-        if (!session || session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        const db = getDb();
-        const { searchParams } = new URL(request.url);
-        const id = searchParams.get('id');
-        if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
-        db.prepare('DELETE FROM energy_data WHERE id = ?').run(id);
-        return NextResponse.json({ success: true });
+            return NextResponse.json({ success: true, count: entries.length });
+        } else {
+            const entry = {
+                ...data,
+                room_id: new ObjectId(data.room_id),
+                energy_consumption_kwh: parseFloat(data.energy_consumption_kwh),
+                created_at: new Date().toISOString()
+            };
+            const result = await db.collection('energy_data').insertOne(entry);
+            return NextResponse.json({ success: true, id: result.insertedId.toString() });
+        }
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

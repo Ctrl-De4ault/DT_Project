@@ -1,29 +1,49 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { getDb } from '@/lib/mongodb';
+import { ObjectId } from 'mongodb';
 
-export async function GET(request) {
+export async function GET() {
     try {
-        const db = getDb();
-        const { searchParams } = new URL(request.url);
-        const buildingId = searchParams.get('building_id');
-        const blockId = searchParams.get('block_id');
+        const db = await getDb();
 
-        let query = `
-      SELECT r.*, bld.name as building_name, blk.name as block_name, blk.id as block_id
-      FROM rooms r
-      JOIN buildings bld ON bld.id = r.building_id
-      JOIN blocks blk ON blk.id = bld.block_id
-    `;
-        const conditions = [];
-        const args = [];
+        const rooms = await db.collection('rooms').aggregate([
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: 'building_id',
+                    foreignField: '_id',
+                    as: 'building'
+                }
+            },
+            {
+                $unwind: { path: '$building', preserveNullAndEmptyArrays: true }
+            },
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'building.block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            {
+                $unwind: { path: '$block', preserveNullAndEmptyArrays: true }
+            },
+            {
+                $project: {
+                    room_name: 1,
+                    building_id: 1,
+                    sensor_id: 1,
+                    capacity: 1,
+                    threshold_kwh: 1,
+                    created_at: 1,
+                    building_name: '$building.name',
+                    block_name: '$block.name'
+                }
+            },
+            { $sort: { created_at: -1 } }
+        ]).toArray();
 
-        if (buildingId) { conditions.push('r.building_id = ?'); args.push(buildingId); }
-        if (blockId) { conditions.push('blk.id = ?'); args.push(blockId); }
-        if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
-        query += ' ORDER BY blk.name, bld.name, r.room_name';
-
-        const rooms = db.prepare(query).all(...args);
         return NextResponse.json(rooms);
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -32,15 +52,26 @@ export async function GET(request) {
 
 export async function POST(request) {
     try {
-        const session = await getSession();
-        if (!session || session.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        const db = getDb();
+        const db = await getDb();
         const { room_name, building_id, sensor_id, capacity, threshold_kwh } = await request.json();
-        if (!room_name || !building_id) return NextResponse.json({ error: 'Room name and building required' }, { status: 400 });
-        const result = db.prepare(
-            'INSERT INTO rooms (room_name, building_id, sensor_id, capacity, threshold_kwh) VALUES (?, ?, ?, ?, ?)'
-        ).run(room_name, building_id, sensor_id || null, capacity || 30, threshold_kwh || 50);
-        return NextResponse.json({ id: result.lastInsertRowid });
+
+        if (!room_name || !building_id) {
+            return NextResponse.json({ error: 'Room name and building required' }, { status: 400 });
+        }
+
+        const result = await db.collection('rooms').insertOne({
+            room_name,
+            building_id: new ObjectId(building_id),
+            sensor_id: sensor_id || null,
+            capacity: Number(capacity) || 30,
+            threshold_kwh: Number(threshold_kwh) || 50,
+            created_at: new Date().toISOString()
+        });
+
+        return NextResponse.json({
+            success: true,
+            id: result.insertedId.toString()
+        });
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

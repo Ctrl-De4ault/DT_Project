@@ -1,18 +1,56 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/mongodb';
 import { getSession } from '@/lib/auth';
+import { ObjectId } from 'mongodb';
 
 export async function GET() {
     try {
-        const db = getDb();
-        const alerts = db.prepare(`
-      SELECT a.*, r.room_name, bld.name as building_name, blk.name as block_name
-      FROM alerts a
-      LEFT JOIN rooms r ON r.id = a.room_id
-      LEFT JOIN buildings bld ON bld.id = r.building_id
-      LEFT JOIN blocks blk ON blk.id = bld.block_id
-      ORDER BY a.created_at DESC
-    `).all();
+        const db = await getDb();
+
+        const alerts = await db.collection('alerts').aggregate([
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: 'room_id',
+                    foreignField: '_id',
+                    as: 'room'
+                }
+            },
+            { $unwind: { path: '$room', preserveNullAndEmptyArrays: true } },
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: 'room.building_id',
+                    foreignField: '_id',
+                    as: 'building'
+                }
+            },
+            { $unwind: { path: '$building', preserveNullAndEmptyArrays: true } },
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'building.block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            { $unwind: { path: '$block', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    room_id: 1,
+                    message: 1,
+                    sent_to: 1,
+                    status: 1,
+                    alert_type: 1,
+                    created_at: 1,
+                    room_name: { $ifNull: ['$room.room_name', 'General'] },
+                    building_name: { $ifNull: ['$building.name', ''] },
+                    block_name: { $ifNull: ['$block.name', ''] }
+                }
+            },
+            { $sort: { created_at: -1 } }
+        ]).toArray();
+
         return NextResponse.json(alerts);
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -23,13 +61,21 @@ export async function POST(request) {
     try {
         const session = await getSession();
         if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        const db = getDb();
+
         const { room_id, message, sent_to, alert_type } = await request.json();
         if (!message) return NextResponse.json({ error: 'Message required' }, { status: 400 });
-        const result = db.prepare(
-            'INSERT INTO alerts (room_id, message, sent_to, status, alert_type) VALUES (?, ?, ?, ?, ?)'
-        ).run(room_id || null, message, sent_to || null, 'sent', alert_type || 'manual');
-        return NextResponse.json({ id: result.lastInsertRowid, success: true });
+
+        const db = await getDb();
+        const result = await db.collection('alerts').insertOne({
+            room_id: room_id ? new ObjectId(room_id) : null,
+            message,
+            sent_to: sent_to || null,
+            status: 'sent',
+            alert_type: alert_type || 'manual',
+            created_at: new Date().toISOString()
+        });
+
+        return NextResponse.json({ id: result.insertedId.toString(), success: true });
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

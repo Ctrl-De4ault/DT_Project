@@ -1,20 +1,39 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
-import { getSession } from '@/lib/auth';
+import { getDb } from '@/lib/mongodb';
 
 export async function GET() {
     try {
-        const db = getDb();
-        const blocks = db.prepare(`
-      SELECT b.*, 
-        COUNT(DISTINCT bld.id) as building_count,
-        COUNT(DISTINCT r.id) as room_count
-      FROM blocks b
-      LEFT JOIN buildings bld ON bld.block_id = b.id
-      LEFT JOIN rooms r ON r.building_id = bld.id
-      GROUP BY b.id
-      ORDER BY b.name
-    `).all();
+        const db = await getDb();
+
+        const blocks = await db.collection('blocks').aggregate([
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: '_id',
+                    foreignField: 'block_id',
+                    as: 'buildings'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: 'buildings._id',
+                    foreignField: 'building_id',
+                    as: 'rooms'
+                }
+            },
+            {
+                $project: {
+                    name: 1,
+                    description: 1,
+                    created_at: 1,
+                    building_count: { $size: '$buildings' },
+                    room_count: { $size: '$rooms' }
+                }
+            },
+            { $sort: { created_at: -1 } }
+        ]).toArray();
+
         return NextResponse.json(blocks);
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -23,15 +42,25 @@ export async function GET() {
 
 export async function POST(request) {
     try {
-        const session = await getSession();
-        if (!session || session.role !== 'admin') {
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        }
-        const db = getDb();
+        const db = await getDb();
         const { name, description } = await request.json();
-        if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
-        const result = db.prepare('INSERT INTO blocks (name, description) VALUES (?, ?)').run(name, description || null);
-        return NextResponse.json({ id: result.lastInsertRowid, name, description });
+
+        if (!name) {
+            return NextResponse.json({ error: 'Block name required' }, { status: 400 });
+        }
+
+        const result = await db.collection('blocks').insertOne({
+            name,
+            description: description || null,
+            created_at: new Date().toISOString()
+        });
+
+        return NextResponse.json({
+            success: true,
+            id: result.insertedId.toString(),
+            name,
+            description
+        });
     } catch (err) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

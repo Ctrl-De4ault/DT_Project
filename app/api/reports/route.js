@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/mongodb';
 
 export async function GET(request) {
     try {
-        const db = getDb();
+        const db = await getDb();
         const { searchParams } = new URL(request.url);
         const type = searchParams.get('type') || 'daily';
 
@@ -19,142 +19,171 @@ export async function GET(request) {
             startDate = todayStr;
         }
 
-        // All rooms with consumption in period
-        const rooms = db.prepare(`
-      SELECT r.room_name, r.threshold_kwh, r.sensor_id,
-        bld.name as building_name, blk.name as block_name,
-        SUM(ed.energy_consumption_kwh) as total_kwh,
-        AVG(ed.energy_consumption_kwh) as avg_kwh,
-        COUNT(ed.id) as data_points
-      FROM energy_data ed
-      JOIN rooms r ON r.id = ed.room_id
-      JOIN buildings bld ON bld.id = r.building_id
-      JOIN blocks blk ON blk.id = bld.block_id
-      WHERE ed.date >= ?
-      GROUP BY r.id ORDER BY total_kwh DESC
-    `).all(startDate);
+        // 1. Core Data Aggregation (Rooms, Buildings, Blocks)
+        const roomStats = await db.collection('energy_data').aggregate([
+            { $match: { date: { $gte: startDate } } },
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: 'room_id',
+                    foreignField: '_id',
+                    as: 'room'
+                }
+            },
+            { $unwind: '$room' },
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: 'room.building_id',
+                    foreignField: '_id',
+                    as: 'building'
+                }
+            },
+            { $unwind: '$building' },
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'building.block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            { $unwind: '$block' },
+            {
+                $group: {
+                    _id: '$room_id',
+                    room_name: { $first: '$room.room_name' },
+                    threshold_kwh: { $first: '$room.threshold_kwh' },
+                    building_name: { $first: '$building.name' },
+                    block_name: { $first: '$block.name' },
+                    total_kwh: { $sum: '$energy_consumption_kwh' },
+                    avg_kwh: { $avg: '$energy_consumption_kwh' },
+                    data_points: { $count: {} }
+                }
+            },
+            { $sort: { total_kwh: -1 } }
+        ]).toArray();
 
-        const allRooms = db.prepare(`
-      SELECT AVG(energy_consumption_kwh) as global_avg
-      FROM energy_data WHERE date >= ?
-    `).get(startDate);
-        const globalAvg = allRooms?.global_avg || 0;
+        // 2. Global Aggregations
+        const globalStats = await db.collection('energy_data').aggregate([
+            { $match: { date: { $gte: startDate } } },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: '$energy_consumption_kwh' },
+                    avg: { $avg: '$energy_consumption_kwh' },
+                    count: { $count: {} }
+                }
+            }
+        ]).toArray();
 
-        // Generate AI insights
+        const globalTotal = globalStats[0]?.total || 0;
+        const globalAvg = globalStats[0]?.avg || 0;
+
+        // 3. Peak Detection
+        const peaks = await db.collection('energy_data').aggregate([
+            { $match: { date: { $gte: startDate } } },
+            {
+                $group: {
+                    _id: '$date',
+                    total: { $sum: '$energy_consumption_kwh' }
+                }
+            },
+            { $sort: { total: -1 } },
+            { $limit: 1 }
+        ]).toArray();
+
+        // 4. Block Ranking
+        const blockRanking = await db.collection('energy_data').aggregate([
+            { $match: { date: { $gte: startDate } } },
+            {
+                $lookup: {
+                    from: 'rooms',
+                    localField: 'room_id',
+                    foreignField: '_id',
+                    as: 'room'
+                }
+            },
+            { $unwind: '$room' },
+            {
+                $lookup: {
+                    from: 'buildings',
+                    localField: 'room.building_id',
+                    foreignField: '_id',
+                    as: 'building'
+                }
+            },
+            { $unwind: '$building' },
+            {
+                $lookup: {
+                    from: 'blocks',
+                    localField: 'building.block_id',
+                    foreignField: '_id',
+                    as: 'block'
+                }
+            },
+            { $unwind: '$block' },
+            {
+                $group: {
+                    _id: '$block.name',
+                    total: { $sum: '$energy_consumption_kwh' },
+                    avg_per_room: { $avg: '$energy_consumption_kwh' }
+                }
+            },
+            { $project: { block: '$_id', total: 1, avg_per_room: 1, _id: 0 } },
+            { $sort: { avg_per_room: 1 } }
+        ]).toArray();
+
+        // 5. Generate Insights
         const insights = [];
-        const inefficientRooms = rooms.filter(r => r.avg_kwh > r.threshold_kwh);
-        const efficientRooms = rooms.filter(r => r.avg_kwh < r.threshold_kwh * 0.7);
+        const inefficientRooms = roomStats.filter(r => r.avg_kwh > r.threshold_kwh);
+        const efficientRooms = roomStats.filter(r => r.avg_kwh < r.threshold_kwh * 0.7);
 
-        // Top insight
-        if (rooms.length > 0) {
-            const topRoom = rooms[0];
-            const pctAboveAvg = ((topRoom.avg_kwh - globalAvg) / globalAvg * 100).toFixed(1);
+        if (roomStats.length > 0) {
+            const topRoom = roomStats[0];
+            const pctAboveAvg = globalAvg ? ((topRoom.avg_kwh - globalAvg) / globalAvg * 100).toFixed(1) : 0;
             if (pctAboveAvg > 0) {
                 insights.push({
                     type: 'warning',
                     icon: 'warning',
-                    text: `${topRoom.room_name} (${topRoom.building_name}) consumes ${pctAboveAvg}% more than campus average.`
+                    text: `${topRoom.room_name} consumed ${pctAboveAvg}% more than campus average.`
                 });
             }
         }
 
-        // Inefficient rooms
-        inefficientRooms.slice(0, 3).forEach(r => {
-            const pct = ((r.avg_kwh - r.threshold_kwh) / r.threshold_kwh * 100).toFixed(1);
-            insights.push({
-                type: 'alert',
-                icon: 'alert',
-                text: `${r.room_name} in ${r.building_name} exceeds threshold by ${pct}% (avg: ${r.avg_kwh.toFixed(1)} kWh, limit: ${r.threshold_kwh} kWh).`
-            });
-        });
-
-        // Efficient rooms
-        efficientRooms.slice(0, 2).forEach(r => {
-            const savings = (r.threshold_kwh - r.avg_kwh).toFixed(1);
-            insights.push({
-                type: 'success',
-                icon: 'success',
-                text: `${r.room_name} (${r.building_name}) is performing well — saving ${savings} kWh below threshold.`
-            });
-        });
-
-        // Peak detection
-        const peakDay = db.prepare(`
-      SELECT date, SUM(energy_consumption_kwh) as total
-      FROM energy_data WHERE date >= ?
-      GROUP BY date ORDER BY total DESC LIMIT 1
-    `).get(startDate);
-        if (peakDay) {
+        if (peaks.length > 0) {
             insights.push({
                 type: 'info',
                 icon: 'chart',
-                text: `Peak consumption recorded on ${peakDay.date}: ${peakDay.total.toFixed(1)} kWh campus-wide. Consider load balancing.`
+                text: `Peak consumption of ${peaks[0].total.toFixed(1)} kWh recorded on ${peaks[0]._id}.`
             });
         }
 
-        // Pattern insights
-        if (type === 'weekly') {
-            const weekendAvg = db.prepare(`
-        SELECT AVG(energy_consumption_kwh) as avg FROM energy_data
-        WHERE strftime('%w', date) IN ('0', '6') AND date >= ?
-      `).get(startDate);
-            const weekdayAvg = db.prepare(`
-        SELECT AVG(energy_consumption_kwh) as avg FROM energy_data
-        WHERE strftime('%w', date) NOT IN ('0', '6') AND date >= ?
-      `).get(startDate);
-            if (weekendAvg?.avg && weekdayAvg?.avg) {
-                const diff = (((weekdayAvg.avg - weekendAvg.avg) / weekendAvg.avg) * 100).toFixed(1);
-                insights.push({
-                    type: 'info',
-                    icon: 'bar',
-                    text: `Weekday consumption is ${diff}% higher than weekends. Consider automated shutdowns on weekends.`
-                });
-            }
-        }
-
-        if (type === 'monthly') {
+        inefficientRooms.slice(0, 3).forEach(r => {
             insights.push({
-                type: 'tip',
-                icon: 'tip',
-                text: `Installing motion-sensor lighting in low-occupancy rooms could reduce consumption by up to 25%.`
+                type: 'alert',
+                icon: 'alert',
+                text: `${r.room_name} in ${r.building_name} exceeded threshold (avg ${r.avg_kwh.toFixed(1)} kWh).`
             });
-            insights.push({
-                type: 'tip',
-                icon: 'tip',
-                text: `HVAC scheduling optimization during non-peak hours could yield 15-20% monthly energy savings.`
-            });
-        }
-
-        // Block-level efficiency ranking
-        const blockRanking = db.prepare(`
-      SELECT blk.name as block, SUM(ed.energy_consumption_kwh) as total,
-        AVG(ed.energy_consumption_kwh) as avg_per_room
-      FROM energy_data ed
-      JOIN rooms r ON r.id = ed.room_id
-      JOIN buildings bld ON bld.id = r.building_id
-      JOIN blocks blk ON blk.id = bld.block_id
-      WHERE ed.date >= ?
-      GROUP BY blk.id ORDER BY avg_per_room ASC
-    `).all(startDate);
+        });
 
         return NextResponse.json({
             type,
             period: { start: startDate, end: todayStr },
             summary: {
-                total_kwh: rooms.reduce((s, r) => s + r.total_kwh, 0).toFixed(2),
-                avg_kwh: globalAvg.toFixed(2),
-                rooms_monitored: rooms.length,
+                total_kwh: globalTotal.toFixed(1),
+                avg_kwh: globalAvg.toFixed(1),
+                rooms_monitored: roomStats.length,
                 rooms_above_threshold: inefficientRooms.length,
                 rooms_efficient: efficientRooms.length,
             },
-            top_rooms: rooms.slice(0, 10),
+            top_rooms: roomStats.slice(0, 10),
             inefficient_rooms: inefficientRooms.slice(0, 5),
             efficient_rooms: efficientRooms.slice(0, 5),
             insights,
             block_ranking: blockRanking,
         });
     } catch (err) {
-        console.error(err);
         return NextResponse.json({ error: err.message }, { status: 500 });
     }
 }
