@@ -11,14 +11,14 @@ export async function POST(request) {
         // Ensure database is seeded if empty
         await seedDatabase();
 
-        const { name, email, password, campus_code } = await request.json();
+        const { name, email, password, campusCode } = await request.json();
 
-        if (!name || !email || !password || !campus_code) {
+        if (!name || !email || !password || !campusCode) {
             return NextResponse.json({ error: 'All fields required' }, { status: 400 });
         }
 
         // Validate campus code
-        const codeDoc = await db.collection('campus_codes').findOne({ _id: campus_code.toUpperCase() });
+        const codeDoc = await db.collection('campus_codes').findOne({ _id: campusCode.toUpperCase() });
         if (!codeDoc || !codeDoc.is_active) {
             return NextResponse.json({ error: 'Invalid or inactive campus code' }, { status: 400 });
         }
@@ -58,7 +58,7 @@ export async function POST(request) {
             }
         });
 
-        response.cookies.set('auth-token', token, {
+        response.cookies.set('cems_token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',

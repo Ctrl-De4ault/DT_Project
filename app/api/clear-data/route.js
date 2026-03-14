@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST() {
     try {
-        emptyAllData();
+        await emptyAllData();
         return NextResponse.json({ 
             success: true, 
             message: 'All data has been successfully cleared from the database.' 

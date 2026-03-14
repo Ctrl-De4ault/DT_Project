@@ -1,14 +1,14 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { seedDatabase } from '@/lib/seed';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/mongodb';
 import SidebarWrapper from '@/components/SidebarWrapper';
 
 export default async function DashboardLayout({ children }) {
     let session;
     try {
         // Ensure DB + seed on every request (noop if already seeded)
-        seedDatabase();
+        await seedDatabase();
         session = await getSession();
     } catch { }
 
@@ -17,9 +17,8 @@ export default async function DashboardLayout({ children }) {
     // Get pending alert count for sidebar badge
     let alertCount = 0;
     try {
-        const db = getDb();
-        const result = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'pending'").get();
-        alertCount = result?.count || 0;
+        const db = await getDb();
+        alertCount = await db.collection('alerts').countDocuments({ status: 'pending' });
     } catch { }
 
     return (
