@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { verifyToken } from './lib/auth.js';
 
-export async function middleware(request) {
+export async function proxy(request) {
     const { pathname } = request.nextUrl;
 
     // Public routes
-    if (pathname.startsWith('/login') || pathname.startsWith('/api/auth')) {
+    if (pathname.startsWith('/login') ||
+        pathname === '/api/auth/login' ||
+        pathname === '/api/auth/signup') {
         return NextResponse.next();
     }
 
