@@ -1,15 +1,14 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/db';
 import SidebarWrapper from '@/components/SidebarWrapper';
 
 export default async function SharedLayout({ children }) {
     let session, alertCount = 0;
     try {
-        const db = getDb();
+        const db = await getDb();
         session = await getSession();
-        const result = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'pending'").get();
-        alertCount = result?.count || 0;
+        alertCount = await db.collection('alerts').countDocuments({ status: 'pending' });
     } catch { }
     if (!session) redirect('/login');
     return (

@@ -1,18 +1,17 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { seedDatabase } from '@/lib/seed';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/db';
 import SidebarWrapper from '@/components/SidebarWrapper';
 
 export default async function PagesLayout({ children }) {
     let session;
     let alertCount = 0;
     try {
-        getDb(); seedDatabase();
+        await seedDatabase();
         session = await getSession();
-        const db = getDb();
-        const result = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'pending'").get();
-        alertCount = result?.count || 0;
+        const db = await getDb();
+        alertCount = await db.collection('alerts').countDocuments({ status: 'pending' });
     } catch { }
     if (!session) redirect('/login');
     return (

@@ -1,9 +1,9 @@
-import { emptyInfrastructureData } from '@/lib/seed';
+import { emptyAllData } from '@/lib/seed';
 import { NextResponse } from 'next/server';
 
 export async function POST() {
     try {
-        emptyInfrastructureData();
+        await emptyAllData();
         return NextResponse.json({ 
             success: true, 
             message: 'Infrastructure data (blocks, buildings, rooms, energy data, alerts) has been successfully cleared. User accounts preserved.' 
