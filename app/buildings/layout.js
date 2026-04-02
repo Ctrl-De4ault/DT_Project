@@ -11,7 +11,7 @@ export default async function SharedLayout({ children }) {
         const result = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'pending'").get();
         alertCount = result?.count || 0;
     } catch { }
-    if (!session) redirect('/login');
+
     return (
         <div className="page-layout">
             <SidebarWrapper user={session} alertCount={alertCount} />

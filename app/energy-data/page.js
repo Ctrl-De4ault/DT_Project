@@ -12,6 +12,7 @@ export default function EnergyDataPage() {
     const [form, setForm] = useState({ room_id: '', date: new Date().toISOString().split('T')[0], energy_consumption_kwh: '', notes: '' });
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
+    const [error, setError] = useState('');
     const [csvRows, setCsvRows] = useState([]);
     const [csvPreview, setCsvPreview] = useState(false);
     const [filterBlock, setFilterBlock] = useState('');
@@ -61,15 +62,19 @@ export default function EnergyDataPage() {
         e.preventDefault();
         setSaving(true);
         setSuccess('');
+        setError('');
         const res = await fetch('/api/energy-data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(form),
         });
+        const result = await res.json();
         if (res.ok) {
             setSuccess(<> <CircleCheck size={16} style={{ display: 'inline', verticalAlign: 'sub' }} /> Energy data recorded successfully! </>);
             setForm(f => ({ ...f, energy_consumption_kwh: '', notes: '' }));
             fetchAll();
+        } else {
+            setError(result.error || 'Failed to record energy data');
         }
         setSaving(false);
     };
@@ -94,18 +99,22 @@ export default function EnergyDataPage() {
 
     const handleCsvSubmit = async () => {
         setSaving(true);
+        setSuccess('');
+        setError('');
         const res = await fetch('/api/energy-data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(csvRows),
         });
+        const result = await res.json();
         if (res.ok) {
-            const result = await res.json();
-            setSuccess(<> <CircleCheck size={16} style={{ display: 'inline', verticalAlign: 'sub' }} /> Uploaded {result.inserted} records successfully! </>);
+            setSuccess(<> <CircleCheck size={16} style={{ display: 'inline', verticalAlign: 'sub' }} /> Uploaded {result.count} records successfully! </>);
             setCsvPreview(false);
             setCsvRows([]);
             if (fileRef.current) fileRef.current.value = '';
             fetchAll();
+        } else {
+            setError(result.error || 'Failed to upload CSV data');
         }
         setSaving(false);
     };
@@ -119,6 +128,8 @@ export default function EnergyDataPage() {
     // Quick log function for today's energy
     const handleQuickLog = async (roomId, kWh) => {
         setSaving(true);
+        setSuccess('');
+        setError('');
         const today = new Date().toISOString().split('T')[0];
         const res = await fetch('/api/energy-data', {
             method: 'POST',
@@ -130,9 +141,12 @@ export default function EnergyDataPage() {
                 notes: 'Quick log entry'
             }),
         });
+        const result = await res.json();
         if (res.ok) {
             setSuccess(<> <CircleCheck size={16} style={{ display: 'inline', verticalAlign: 'sub' }} /> Quick log added successfully! </>);
             fetchAll();
+        } else {
+            setError(result.error || 'Failed to add quick log');
         }
         setSaving(false);
     };
@@ -162,6 +176,7 @@ export default function EnergyDataPage() {
             </div>
 
             {success && <div style={{ background: 'var(--success-light)', color: 'var(--success)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13 }}>{success}</div>}
+            {error && <div style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13 }}>{error}</div>}
 
             {tab === 'upload' && (
                 <div className="card">

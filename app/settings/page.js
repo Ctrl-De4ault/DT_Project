@@ -27,8 +27,8 @@ export default function SettingsPage() {
 
             if (result.success) {
                 alert('✅ All data has been successfully cleared. The system will need to be reseeded.');
-                // Optionally redirect to login page since all users are deleted
-                window.location.href = '/login';
+                // Redirect to dashboard to refresh state
+                window.location.href = '/dashboard';
             } else {
                 alert('❌ Failed to clear data: ' + result.error);
             }

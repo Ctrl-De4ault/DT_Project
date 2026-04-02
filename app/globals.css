@@ -1290,8 +1290,292 @@ code {
 
 /* Gradient text */
 .gradient-text {
-  background: linear-gradient(135deg, var(--accent-hover), #818CF8);
+  background: linear-gradient(135deg, #E0E7FF, #818CF8, #6366F1);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* ── Premium Card ── */
+.premium-card {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.premium-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  pointer-events: none;
+  background: radial-gradient(ellipse at 30% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
+}
+
+.premium-card:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* KPI Card Glow */
+.kpi-card-glow {
+  position: absolute;
+  top: -30px;
+  right: -30px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+/* ── Chart Tooltip ── */
+.chart-tooltip {
+  background: rgba(15, 15, 15, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.chart-tooltip-label {
+  color: #737373;
+  margin-bottom: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chart-tooltip-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-top: 3px;
+}
+
+.chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* ── Donut Center ── */
+.donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.donut-center-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.donut-center-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+/* ── Pie Legend ── */
+.pie-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px;
+  margin-top: 4px;
+}
+
+.pie-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 5px 10px;
+  border-radius: 6px;
+  flex: 1;
+  min-width: 100px;
+}
+
+.pie-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pie-legend-name {
+  color: var(--text-secondary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pie-legend-val {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* ── Gauge Center ── */
+.gauge-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.gauge-value {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.gauge-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+/* ── Stat Mini Card ── */
+.stat-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  transition: var(--transition);
+}
+
+.stat-mini:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.stat-mini-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.stat-mini-info {
+  flex: 1;
+}
+
+.stat-mini-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-mini-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.stat-mini-trend {
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.stat-mini-trend.up {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.stat-mini-trend.down {
+  color: var(--success);
+  background: var(--success-light);
+}
+
+/* ── Trend Badges ── */
+.trend-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.trend-badge.up {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
+.trend-badge.down {
+  color: var(--success);
+  background: var(--success-light);
+}
+
+.trend-badge-sm {
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.trend-badge-sm.up {
+  color: var(--danger);
+}
+
+.trend-badge-sm.down {
+  color: var(--success);
+}
+
+/* ── Shimmer animation for loading ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.card.loading {
+  background: linear-gradient(90deg,
+    var(--bg-secondary) 25%,
+    var(--bg-tertiary) 50%,
+    var(--bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* ── Recharts overrides ── */
+.recharts-default-tooltip {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.recharts-legend-item-text {
+  color: var(--text-secondary) !important;
+  font-size: 12px !important;
 }

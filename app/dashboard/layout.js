@@ -1,5 +1,4 @@
 import { getSession } from '@/lib/auth';
-import { redirect } from 'next/navigation';
 import { seedDatabase } from '@/lib/seed';
 import getDb from '@/lib/db';
 import SidebarWrapper from '@/components/SidebarWrapper';
@@ -11,8 +10,6 @@ export default async function DashboardLayout({ children }) {
         seedDatabase();
         session = await getSession();
     } catch { }
-
-    if (!session) redirect('/login');
 
     // Get pending alert count for sidebar badge
     let alertCount = 0;

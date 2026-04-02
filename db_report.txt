@@ -1,0 +1,37 @@
+=== Tables in database ===
+
+TABLE: users
+ROWS: 3
+COLS: id, name, email, password_hash, role, phone, created_at
+
+TABLE: sqlite_sequence
+ROWS: 7
+COLS: name, seq
+
+TABLE: blocks
+ROWS: 1
+COLS: id, name, description, created_at
+
+TABLE: buildings
+ROWS: 2
+COLS: id, name, block_id, created_at
+
+TABLE: rooms
+ROWS: 3
+COLS: id, room_name, building_id, sensor_id, capacity, threshold_kwh, created_at
+
+TABLE: energy_data
+ROWS: 5
+COLS: id, room_id, date, energy_consumption_kwh, uploaded_by, notes, created_at
+
+TABLE: alerts
+ROWS: 0
+COLS: id, room_id, message, sent_to, status, alert_type, created_at
+
+TABLE: seeded
+ROWS: 1
+COLS: id, done
+
+TABLE: campus_codes
+ROWS: 0
+COLS: id, code, created_by, is_active, created_at

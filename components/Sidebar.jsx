@@ -1,6 +1,5 @@
 'use client';
-import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 import {
@@ -47,14 +46,6 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ user, alertCount = 0 }) {
     const pathname = usePathname();
-    const router = useRouter();
-    const [loggingOut, setLoggingOut] = useState(false);
-
-    const handleLogout = async () => {
-        setLoggingOut(true);
-        await fetch('/api/auth/logout', { method: 'POST' });
-        router.push('/login');
-    };
 
     const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U';
 
@@ -99,15 +90,15 @@ export default function Sidebar({ user, alertCount = 0 }) {
             </nav>
 
             <div className="sidebar-footer">
-                <div className="sidebar-user" onClick={handleLogout} title="Click to logout">
+                <div className="sidebar-user">
                     <div className="sidebar-avatar">{initials}</div>
                     <div className="sidebar-user-info">
                         <div className="sidebar-user-name">{user?.name || 'User'}</div>
-                        <div className="sidebar-user-role">{user?.role || 'user'} · Sign out</div>
+                        <div className="sidebar-user-role">{user?.role || 'admin'}</div>
                     </div>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>{loggingOut ? '...' : '→'}</span>
                 </div>
             </div>
         </aside>
     );
 }
+

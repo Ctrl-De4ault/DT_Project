@@ -1,17 +1,21 @@
 import { getSession } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import getDb from '@/lib/db';
+import { getDb } from '@/lib/mongodb';
 import SidebarWrapper from '@/components/SidebarWrapper';
 
 export default async function SharedLayout({ children }) {
-    let session, alertCount = 0;
+    let session;
+    let alertCount = 0;
     try {
-        const db = getDb();
+        const db = await getDb();
         session = await getSession();
-        const result = db.prepare("SELECT COUNT(*) as count FROM alerts WHERE status = 'pending'").get();
-        alertCount = result?.count || 0;
-    } catch { }
-    if (!session) redirect('/login');
+        if (db) {
+            alertCount = await db.collection('alerts').countDocuments({ status: 'pending' });
+        }
+    } catch (err) {
+        console.error('Layout error:', err);
+    }
+
     return (
         <div className="page-layout">
             <SidebarWrapper user={session} alertCount={alertCount} />
